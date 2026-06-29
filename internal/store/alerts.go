@@ -76,6 +76,43 @@ func (s *Store) UpdateAlertFireAt(ctx context.Context, userID, id int64, fireAt 
 	return nil
 }
 
+// DueAlert é um alerta pendente vencido, com o dono e o fuso resolvidos — o que
+// o scheduler precisa p/ rotear o push e avançar a recorrência na parede certa.
+// core.Alert não carrega user_id/timezone (é escopado por fora); o scheduler é
+// cross-user, então estes campos vêm junto aqui.
+type DueAlert struct {
+	core.Alert
+	UserID   int64
+	Timezone string
+}
+
+// DueAlerts retorna, de TODOS os usuários, os alertas pendentes cujo fire_at já
+// passou — a varredura do scheduler. O fuso vem do user_prefs (default UTC).
+func (s *Store) DueAlerts(ctx context.Context, now time.Time) ([]DueAlert, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT a.id, a.message, a.note_id, a.fire_at, a.recurrence, a.status, a.created_at,
+		        a.user_id, COALESCE(p.timezone, 'UTC')
+		   FROM alerts a
+		   LEFT JOIN user_prefs p ON p.user_id = a.user_id
+		  WHERE a.status = 'pending' AND a.fire_at <= $1
+		  ORDER BY a.fire_at ASC, a.id ASC`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []DueAlert{}
+	for rows.Next() {
+		var d DueAlert
+		if err := rows.Scan(&d.ID, &d.Message, &d.NoteID, &d.FireAt, &d.Recurrence,
+			&d.Status, &d.CreatedAt, &d.UserID, &d.Timezone); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 func scanAlert(row pgx.Row) (core.Alert, error) {
 	var a core.Alert
 	err := row.Scan(&a.ID, &a.Message, &a.NoteID, &a.FireAt, &a.Recurrence, &a.Status, &a.CreatedAt)

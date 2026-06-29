@@ -62,10 +62,21 @@ tipos + intents), schema Postgres (`migrations/0001_init.sql`), esqueleto HTTP.
   `DELETE /v1/conversations/{id}`.
 - `Dockerfile` (binário estático, sem CGO) pronto pra Railway.
 
-Falta (fase 2+): embeddings + busca híbrida, relay de IA + SSE, scheduler+push, e
-o deploy na Railway. As intents de IA (Capture/Find/Ask/Summarize/Tidy, Chat,
-Alerts.Create por linguagem natural) satisfazem o contrato mas retornam 501.
-Roteiro completo: `docs/todo` no repo `gix`.
+**Scheduler central + push (fase 3 do ROADMAP)** — feito e verificado:
+- Goroutine de scheduler (`internal/scheduler`) varre alertas pendentes vencidos
+  de todos os usuários (tick imediato no boot + a cada 30s), avança recorrência
+  no fuso do dono (`internal/recur`, `user_prefs.timezone`) ou marca one-shot
+  como `done`. Funciona com o desktop fechado.
+- Cada disparo vira uma linha no outbox (`alert_deliveries`); o push ao vivo
+  (SSE, `GET /v1/push`) entrega na hora e marca `delivered_at`, e o cliente que
+  estava offline recebe as pendentes ao reconectar — nada se perde.
+- `user_channels` (preferência de canal) fica p/ a fase 4 (2º canal); com só o
+  desktop não há o que preferir.
+
+Falta (fase 2): embeddings + busca híbrida, relay de IA + SSE de chat. As intents
+de IA (Capture/Find/Ask/Summarize/Tidy, Chat, Alerts.Create por linguagem
+natural) satisfazem o contrato mas retornam 501. Depois: deploy na Railway e o
+2º canal. Roteiro completo: `docs/todo` no repo `gix`.
 
 ## Rodar
 

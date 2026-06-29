@@ -14,9 +14,12 @@ import (
 	"os/signal"
 	"time"
 
+	_ "time/tzdata" // tz embutido: LoadLocation funciona na imagem sem tzdata do SO
+
 	"github.com/Pedro-0101/gix-server/internal/auth"
 	"github.com/Pedro-0101/gix-server/internal/config"
 	"github.com/Pedro-0101/gix-server/internal/httpapi"
+	"github.com/Pedro-0101/gix-server/internal/scheduler"
 	"github.com/Pedro-0101/gix-server/internal/service"
 	"github.com/Pedro-0101/gix-server/internal/store"
 )
@@ -39,7 +42,11 @@ func main() {
 	}
 	defer st.Close()
 
-	handler := httpapi.New(service.NewCore(st), auth.New(cfg.JWTSecret), st)
+	// push hub (SSE) é o Notifier do scheduler e o transporte da rota /v1/push.
+	hub := httpapi.NewPushHub(st)
+	go scheduler.New(st, hub).Run(ctx)
+
+	handler := httpapi.New(service.NewCore(st), auth.New(cfg.JWTSecret), st, hub)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

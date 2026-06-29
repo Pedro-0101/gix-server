@@ -23,9 +23,12 @@ regra de negócio. Antes de adicionar qualquer coisa, pergunte: "isso é lógica
   Migration `0002_refresh_tokens.sql` (hash sha256, expiração, revogação).
 - Camada de dados completa (fase 1): `store/alerts.go`, `store/conversations.go`,
   `store/tokens.go`; `service/alerts.go` + `service/history.go` saíram do stub.
-- Intents que dependem de IA/embeddings/scheduler (Capture/Find/Ask/Summarize/Tidy,
-  Chat, `Alerts.Create`/`CreateForNote` por linguagem natural) ainda retornam
-  `core.ErrNotImplemented` (→ 501).
+- Scheduler central + push SSE (fase 3): `internal/scheduler`, `internal/recur`,
+  outbox `alert_deliveries`, `GET /v1/push`. Migration `0003_scheduler_push.sql`
+  (`user_prefs.timezone` + outbox).
+- Intents que dependem de IA/embeddings (Capture/Find/Ask/Summarize/Tidy, Chat,
+  `Alerts.Create`/`CreateForNote` por linguagem natural) ainda retornam
+  `core.ErrNotImplemented` (→ 501) — é a fase 2.
 
 ---
 
@@ -85,16 +88,23 @@ OpenRouter vem de `config.OpenRouterKey`.
   `alert_proposed` no stream; o canal confirma e chama a intent CRUD correspondente.
 - Bots (fase 4) ignoram o streaming: usam um sink que acumula e devolve o `done`.
 
-## Fase 3 — scheduler central + push
+## Fase 3 — scheduler central + push ✓ FEITO
 
-- Tabela de canais/push por usuário (ex.: `user_channels(user_id, kind, address,
-  push_token, preferred)`) — nova migration.
-- Loop de scheduler server-side (goroutine) que faz poll de `alerts` pendentes
-  vencidos (índice `idx_alerts_due` já existe), respeitando o fuso do usuário;
-  avança recorrência (reusar `recurrence.go`) ou marca `done`.
-- No disparo, **push** pro canal preferido: WebSocket/SSE para o desktop;
-  mensagem para WhatsApp/Telegram (fase 4). O desktop, ao receber, mostra a
-  notificação nativa.
+- ✓ Loop de scheduler server-side (`internal/scheduler`, goroutine) com tick
+  imediato no boot + poll a cada 30s sobre `idx_alerts_due`; avança recorrência
+  (`internal/recur`, portado do `recurrence.go` do gix) no fuso do usuário
+  (`user_prefs.timezone`, migration `0003`) ou marca `done`. `_ "time/tzdata"`
+  no main p/ `LoadLocation` funcionar na imagem sem tzdata do SO.
+- ✓ Push por **SSE** (`GET /v1/push`, `httpapi/PushHub` implementa
+  `scheduler.Notifier`). Desacoplado por outbox (`alert_deliveries`): cada
+  disparo persiste; entrega ao vivo marca `delivered_at`; cliente offline recebe
+  as pendentes no reconnect (flush no connect). Nada se perde com o desktop
+  fechado. O `Notifier` é o seam de transporte p/ os canais da fase 4.
+- ⏳ `user_channels` (preferência de canal) adiada p/ a fase 4: com só o desktop
+  (SSE) não há canal a preferir. Quando entrar WhatsApp/Telegram, o `Notifier`
+  passa a rotear pelo canal preferido do usuário.
+- Quando o desktop existir (fase 3 do `docs/todo` do gix): ao receber o evento
+  SSE, mostra a notificação nativa.
 
 ## Fase 4 — segundo canal (prova do multi-canal)
 

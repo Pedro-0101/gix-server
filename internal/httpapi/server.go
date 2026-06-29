@@ -15,11 +15,12 @@ type Server struct {
 	core  *core.Core
 	auth  *auth.Authenticator
 	users *store.Store
+	push  *PushHub
 }
 
 // New monta o roteador. Rotas /v1/auth são públicas; o resto exige Bearer token.
-func New(c *core.Core, a *auth.Authenticator, users *store.Store) http.Handler {
-	s := &Server{core: c, auth: a, users: users}
+func New(c *core.Core, a *auth.Authenticator, users *store.Store, push *PushHub) http.Handler {
+	s := &Server{core: c, auth: a, users: users, push: push}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -53,6 +54,9 @@ func New(c *core.Core, a *auth.Authenticator, users *store.Store) http.Handler {
 	mux.Handle("GET /v1/conversations", protected(s.listConversations))
 	mux.Handle("GET /v1/conversations/{id}/messages", protected(s.conversationMessages))
 	mux.Handle("DELETE /v1/conversations/{id}", protected(s.deleteConversation))
+
+	// push de saída: stream SSE de alertas disparados pelo scheduler
+	mux.Handle("GET /v1/push", protected(s.streamPush))
 
 	return mux
 }
