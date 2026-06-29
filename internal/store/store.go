@@ -10,21 +10,39 @@ import (
 	"io/fs"
 	"sort"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxvector "github.com/pgvector/pgvector-go/pgx"
 
 	"github.com/Pedro-0101/gix-server/migrations"
 )
 
 // Store é o pool de conexões compartilhado por todos os domínios.
+type Pagination struct {
+	Limit  int
+	Offset int
+}
+
+func DefaultPagination() Pagination {
+	return Pagination{Limit: 50, Offset: 0}
+}
+
 type Store struct {
 	pool *pgxpool.Pool
 }
 
 // Open abre o pool, valida a conexão e aplica as migrations embutidas.
 func Open(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvector.RegisterTypes(ctx, conn)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("new pool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()

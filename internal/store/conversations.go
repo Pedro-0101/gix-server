@@ -10,11 +10,12 @@ import (
 )
 
 // ListConversations retorna as conversas do usuário, mais novas primeiro. Nunca nil.
-func (s *Store) ListConversations(ctx context.Context, userID int64) ([]core.Conversation, error) {
+func (s *Store) ListConversations(ctx context.Context, userID int64, p Pagination) ([]core.Conversation, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, title, model, created_at
 		   FROM conversations WHERE user_id = $1
-		   ORDER BY created_at DESC, id DESC`, userID)
+		   ORDER BY created_at DESC, id DESC
+		   LIMIT $2 OFFSET $3`, userID, p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +70,23 @@ func (s *Store) DeleteConversation(ctx context.Context, userID, id int64) error 
 		return core.ErrNotFound
 	}
 	return nil
+}
+
+// CreateConversation cria uma nova conversa e retorna seu ID.
+func (s *Store) CreateConversation(ctx context.Context, userID int64, title, model string) (int64, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO conversations (user_id, title, model) VALUES ($1, $2, $3) RETURNING id`,
+		userID, title, model).Scan(&id)
+	return id, err
+}
+
+// AddMessage insere uma mensagem em uma conversa.
+func (s *Store) AddMessage(ctx context.Context, conversationID int64, role, content string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)`,
+		conversationID, role, content)
+	return err
 }
 
 // assertConversationOwner confirma que a conversa existe e é do usuário.

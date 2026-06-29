@@ -17,8 +17,8 @@ func NewHistory(s *store.Store) *History { return &History{store: s} }
 
 var _ core.History = (*History)(nil)
 
-func (h *History) List(ctx context.Context, userID int64) ([]core.Conversation, error) {
-	return h.store.ListConversations(ctx, userID)
+func (h *History) List(ctx context.Context, userID int64, opts core.ListOptions) ([]core.Conversation, error) {
+	return h.store.ListConversations(ctx, userID, store.Pagination{Limit: opts.Limit, Offset: opts.Offset})
 }
 
 func (h *History) Messages(ctx context.Context, userID, conversationID int64) ([]core.Message, error) {

@@ -7,6 +7,12 @@ import "context"
 // e repassam o userID; o core nunca confia no canal pra isolar dados — ele
 // sempre filtra por userID nas queries.
 
+// ListOptions são os parâmetros de paginação para listagens.
+type ListOptions struct {
+	Limit  int
+	Offset int
+}
+
 // ChatEvent é um evento do streaming de chat. O core emite estes eventos de
 // forma agnóstica; cada canal traduz: desktop/web reemitem via SSE -> eventos
 // Wails (chat:delta/done/error), bots acumulam e mandam a resposta completa.
@@ -38,7 +44,7 @@ type Notes interface {
 	Find(ctx context.Context, userID int64, query string) ([]SearchResult, error)
 	Ask(ctx context.Context, userID int64, query string) (AskResult, error)
 
-	List(ctx context.Context, userID int64) ([]Note, error)
+	List(ctx context.Context, userID int64, opts ListOptions) ([]Note, error)
 	Get(ctx context.Context, userID, id int64) (Note, error)
 	Update(ctx context.Context, userID, id int64, title, content string, tags []string) (Note, error)
 	Delete(ctx context.Context, userID, id int64) error
@@ -58,7 +64,7 @@ type Notes interface {
 // Alerts são as intents de lembretes. O agendamento/disparo roda no scheduler
 // server-side; estas intents só criam/mutam os registros.
 type Alerts interface {
-	List(ctx context.Context, userID int64) ([]Alert, error)
+	List(ctx context.Context, userID int64, opts ListOptions) ([]Alert, error)
 	Create(ctx context.Context, userID int64, text string) (CreateAlertResult, error)
 	CreateForNote(ctx context.Context, userID, noteID int64, whenText string) (CreateAlertResult, error)
 	CreateProposed(ctx context.Context, userID int64, message, fireAtISO, recurrence string, noteID *int64) (CreateAlertResult, error)
@@ -74,7 +80,7 @@ type Chat interface {
 
 // History são as conversas passadas.
 type History interface {
-	List(ctx context.Context, userID int64) ([]Conversation, error)
+	List(ctx context.Context, userID int64, opts ListOptions) ([]Conversation, error)
 	Messages(ctx context.Context, userID, conversationID int64) ([]Message, error)
 	Delete(ctx context.Context, userID, conversationID int64) error
 }

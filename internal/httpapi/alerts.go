@@ -2,17 +2,22 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/Pedro-0101/gix-server/internal/auth"
+	"github.com/Pedro-0101/gix-server/internal/service"
 )
 
 // alertInput é a criação de um lembrete já estruturado (proposta confirmada).
-// A criação por linguagem natural (parsing por IA) entra na fase 2.
 type alertInput struct {
 	Message    string `json:"message"`
 	FireAt     string `json:"fireAt"` // ISO 8601 (RFC3339) com offset
 	Recurrence string `json:"recurrence"`
 	NoteID     *int64 `json:"noteId"`
+}
+
+type alertParseInput struct {
+	Text string `json:"text"`
 }
 
 type snoozeInput struct {
@@ -21,7 +26,10 @@ type snoozeInput struct {
 
 func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	userID, _ := auth.UserID(r.Context())
-	alerts, err := s.core.Alerts.List(r.Context(), userID)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	opts := service.ParseListOptions(limit, offset)
+	alerts, err := s.core.Alerts.List(r.Context(), userID, opts)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -87,4 +95,39 @@ func (s *Server) snoozeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// parseAlert cria um lembrete a partir de linguagem natural.
+func (s *Server) parseAlert(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r.Context())
+	var in alertParseInput
+	if err := decodeJSON(r, &in); err != nil {
+		http.Error(w, "json inválido", http.StatusBadRequest)
+		return
+	}
+	res, err := s.core.Alerts.Create(r.Context(), userID, in.Text)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// createNoteAlert cria um lembrete vinculado a uma nota, com texto de quando.
+func (s *Server) createNoteAlert(w http.ResponseWriter, r *http.Request) {
+	userID, noteID, ok := userAndID(w, r)
+	if !ok {
+		return
+	}
+	var in alertParseInput
+	if err := decodeJSON(r, &in); err != nil {
+		http.Error(w, "json inválido", http.StatusBadRequest)
+		return
+	}
+	res, err := s.core.Alerts.CreateForNote(r.Context(), userID, noteID, in.Text)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }

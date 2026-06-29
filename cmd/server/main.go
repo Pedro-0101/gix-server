@@ -8,7 +8,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,8 +16,10 @@ import (
 
 	_ "time/tzdata" // tz embutido: LoadLocation funciona na imagem sem tzdata do SO
 
+	"github.com/Pedro-0101/gix-server/internal/ai"
 	"github.com/Pedro-0101/gix-server/internal/auth"
 	"github.com/Pedro-0101/gix-server/internal/config"
+	"github.com/Pedro-0101/gix-server/internal/embed"
 	"github.com/Pedro-0101/gix-server/internal/httpapi"
 	"github.com/Pedro-0101/gix-server/internal/scheduler"
 	"github.com/Pedro-0101/gix-server/internal/service"
@@ -27,10 +29,12 @@ import (
 func main() {
 	cfg := config.Load()
 	if cfg.DatabaseURL == "" {
-		log.Fatal("DATABASE_URL é obrigatório")
+		slog.Error("DATABASE_URL é obrigatório")
+		os.Exit(1)
 	}
 	if cfg.JWTSecret == "" {
-		log.Fatal("JWT_SECRET é obrigatório")
+		slog.Error("JWT_SECRET é obrigatório")
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -38,7 +42,8 @@ func main() {
 
 	st, err := store.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("store: %v", err)
+		slog.Error("store", "err", err)
+		os.Exit(1)
 	}
 	defer st.Close()
 
@@ -46,7 +51,24 @@ func main() {
 	hub := httpapi.NewPushHub(st)
 	go scheduler.New(st, hub).Run(ctx)
 
-	handler := httpapi.New(service.NewCore(st), auth.New(cfg.JWTSecret), st, hub)
+	// embedder ONNX (embeddings server-side). Se falhar (CGO/lib ausente), segue
+	// sem — notas criadas/editadas ficam sem vetor até o deploy corrigir.
+	var embedder *embed.Embedder
+	if err := embed.EnsureModel(cfg.EmbedModelPath); err != nil {
+		slog.Warn("embed: modelo não disponível, embeddings desativados", "err", err)
+	} else {
+		embedder, err = embed.NewEmbedder(cfg.EmbedModelPath)
+		if err != nil {
+			slog.Warn("embed: falha ao iniciar, embeddings desativados", "err", err)
+		}
+	}
+
+	aiDeps := service.AI{
+		Client:   ai.New(cfg.OpenRouterKey),
+		Model:    cfg.AIModel,
+		Embedder: embedder,
+	}
+	handler := httpapi.New(service.NewCore(st, aiDeps), auth.New(cfg.JWTSecret), st, hub, cfg.CORSOrigins)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -55,9 +77,10 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("gix-server ouvindo em :%s", cfg.Port)
+		slog.Info("gix-server ouvindo", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("servidor: %v", err)
+			slog.Error("servidor", "err", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -66,6 +89,6 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown: %v", err)
+		slog.Warn("shutdown", "err", err)
 	}
 }

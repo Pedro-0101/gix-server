@@ -14,10 +14,11 @@ import (
 const alertCols = "id, message, note_id, fire_at, recurrence, status, created_at"
 
 // ListAlerts retorna os alertas do usuário, mais cedo primeiro. Nunca nil.
-func (s *Store) ListAlerts(ctx context.Context, userID int64) ([]core.Alert, error) {
+func (s *Store) ListAlerts(ctx context.Context, userID int64, p Pagination) ([]core.Alert, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+alertCols+` FROM alerts
-		   WHERE user_id = $1 ORDER BY fire_at ASC, id ASC`, userID)
+		   WHERE user_id = $1 ORDER BY fire_at ASC, id ASC
+		   LIMIT $2 OFFSET $3`, userID, p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}

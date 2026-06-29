@@ -55,3 +55,50 @@ func (s *Store) UserByEmail(ctx context.Context, email string) (User, error) {
 	}
 	return u, err
 }
+
+// UserTimezone retorna o fuso do usuário de user_prefs, ou 'UTC' se não definido.
+func (s *Store) UserTimezone(ctx context.Context, userID int64) (string, error) {
+	var tz string
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(timezone,'UTC') FROM user_prefs WHERE user_id=$1`, userID,
+	).Scan(&tz)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "UTC", nil
+	}
+	return tz, err
+}
+
+type UserPrefs struct {
+	Model        string `json:"model"`
+	Language     string `json:"language"`
+	SystemPrompt string `json:"systemPrompt"`
+	CharLimit    int    `json:"charLimit"`
+	Timezone     string `json:"timezone"`
+}
+
+func (s *Store) GetUserPrefs(ctx context.Context, userID int64) (UserPrefs, error) {
+	var p UserPrefs
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(model,''), COALESCE(language,''), COALESCE(system_prompt,''),
+		        COALESCE(note_char_limit,0), COALESCE(timezone,'UTC')
+		   FROM user_prefs WHERE user_id=$1`, userID,
+	).Scan(&p.Model, &p.Language, &p.SystemPrompt, &p.CharLimit, &p.Timezone)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return UserPrefs{}, nil
+	}
+	return p, err
+}
+
+func (s *Store) SetUserPrefs(ctx context.Context, userID int64, p UserPrefs) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_prefs (user_id, model, language, system_prompt, note_char_limit, timezone)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		   model = EXCLUDED.model,
+		   language = EXCLUDED.language,
+		   system_prompt = EXCLUDED.system_prompt,
+		   note_char_limit = EXCLUDED.note_char_limit,
+		   timezone = EXCLUDED.timezone`,
+		userID, p.Model, p.Language, p.SystemPrompt, p.CharLimit, p.Timezone)
+	return err
+}

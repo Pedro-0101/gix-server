@@ -2,13 +2,18 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/Pedro-0101/gix-server/internal/auth"
+	"github.com/Pedro-0101/gix-server/internal/service"
 )
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	userID, _ := auth.UserID(r.Context())
-	convs, err := s.core.History.List(r.Context(), userID)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	opts := service.ParseListOptions(limit, offset)
+	convs, err := s.core.History.List(r.Context(), userID, opts)
 	if err != nil {
 		writeErr(w, err)
 		return

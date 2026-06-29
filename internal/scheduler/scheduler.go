@@ -10,7 +10,7 @@ package scheduler
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/Pedro-0101/gix-server/internal/recur"
@@ -59,14 +59,14 @@ func (s *Scheduler) Run(ctx context.Context) {
 func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	due, err := s.store.DueAlerts(ctx, now)
 	if err != nil {
-		log.Printf("scheduler: due alerts: %v", err)
+		slog.Error("scheduler: due alerts", "err", err)
 		return
 	}
 	for _, a := range due {
 		d, err := s.store.CreateDelivery(ctx, a.UserID, a.ID, a.Message, a.NoteID, a.FireAt)
 		if err != nil {
-			log.Printf("scheduler: enfileirar entrega do alerta %d: %v", a.ID, err)
-			continue // sem outbox não dá p/ garantir entrega; tenta no próximo tick
+			slog.Error("scheduler: enfileirar entrega do alerta", "alert_id", a.ID, "err", err)
+			continue
 		}
 		s.notifier.Deliver(a.UserID, d)
 
@@ -74,12 +74,12 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 			loc := location(a.Timezone)
 			next := recur.NextFireAt(rule, a.FireAt.In(loc), now.In(loc))
 			if err := s.store.UpdateAlertFireAt(ctx, a.UserID, a.ID, next.UTC()); err != nil {
-				log.Printf("scheduler: reagendar alerta %d: %v", a.ID, err)
+				slog.Error("scheduler: reagendar alerta", "alert_id", a.ID, "err", err)
 			}
 			continue
 		}
 		if err := s.store.SetAlertStatus(ctx, a.UserID, a.ID, "done"); err != nil {
-			log.Printf("scheduler: marcar done alerta %d: %v", a.ID, err)
+			slog.Error("scheduler: marcar done alerta", "alert_id", a.ID, "err", err)
 		}
 	}
 }

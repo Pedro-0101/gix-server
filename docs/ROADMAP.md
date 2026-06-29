@@ -26,9 +26,15 @@ regra de negócio. Antes de adicionar qualquer coisa, pergunte: "isso é lógica
 - Scheduler central + push SSE (fase 3): `internal/scheduler`, `internal/recur`,
   outbox `alert_deliveries`, `GET /v1/push`. Migration `0003_scheduler_push.sql`
   (`user_prefs.timezone` + outbox).
-- Intents que dependem de IA/embeddings (Capture/Find/Ask/Summarize/Tidy, Chat,
-  `Alerts.Create`/`CreateForNote` por linguagem natural) ainda retornam
-  `core.ErrNotImplemented` (→ 501) — é a fase 2.
+- **Fase 2 completa**: todas as intents de IA implementadas.
+  - Embeddings server-side ONNX (e5-small, 384 dims) com backfill.
+  - Busca híbrida RRF (FTS + pgvector, k=60) em `Notes.Find`.
+  - `Notes.Ask` (Find + resumo IA), `Summarize`, `Tidy`.
+  - `Notes.Capture` com roteamento IA (attach vs criar, alerta proposto).
+  - `Notes.ResolveOverflow` (part2/summarize/split).
+  - `Alerts.Create` / `CreateForNote` por linguagem natural.
+  - `Chat.Send` com SSE streaming + tool-calls (`create_note`, `create_alert`).
+- Nenhuma intent retorna `core.ErrNotImplemented`.
 
 ---
 
@@ -48,45 +54,18 @@ Portado o resto do `internal/db` do `gix` para o `store`, sem IA. Padrão de
   endpoint `POST /v1/auth/refresh` com rotação (token opaco, guardado por hash
   sha256, revogado a cada uso). Migration `0002_refresh_tokens.sql`.
 
-## Fase 2 — embeddings, busca híbrida e relay de IA (o coração)
+## Fase 2 — embeddings, busca híbrida e relay de IA (o coração) ✓ FEITO
 
-Aqui as intents de IA saem do 501. **Toda IA roda no servidor**; a chave da
-OpenRouter vem de `config.OpenRouterKey`.
+Todas as intents de IA estão implementadas. Nenhuma retorna `core.ErrNotImplemented`.
 
-### Relay de IA
-- Portar `internal/ai/client.go` do `gix` para cá (ex.: `internal/ai/`). Ele já é
-  só HTTP para a OpenRouter (`Complete`, `StreamTools`) — copiar quase 1:1.
-- Injetar o client no `service` (assinaturas de `NewNotes`/`NewChat`/`NewAlerts`
-  ganham o client + a chave). Portar os prompts de `notes_capture.go`,
-  `notes_ask.go`, `prompt.go`, `recurrence.go`.
-- Implementar: `Notes.Capture`, `Ask`, `Summarize`, `Tidy`, `ResolveOverflow`;
-  `Alerts.Create`/`CreateForNote` (parsing de tempo).
-
-### Embeddings (server-side)
-- Portar `internal/embed/` do `gix` (ONNX e5-small). `onnxruntime_go` usa purego
-  (sem CGO) e roda em Linux — mas a `libonnxruntime.so` precisa de glibc, então a
-  imagem final do Docker deixa de ser `distroless/static`: trocar por
-  `debian:bookworm-slim` e copiar/baixar a lib no build (ver nota no `Dockerfile`).
-- Gerar embedding ao criar/editar nota (em `service`), gravando em `notes.embedding`
-  (`vector(384)`). Usar `github.com/pgvector/pgvector-go` para o tipo na escrita/leitura.
-- Embedar notas antigas (sem vetor) num job de backfill.
-
-### Busca híbrida (RRF)
-- Implementar `Notes.Find` portando `notes_search.go` do `gix`, mas server-side:
-  - FTS: `WHERE fts @@ plainto_tsquery('portuguese', unaccent($q))` ordenado por
-    `ts_rank`.
-  - Vetor: `ORDER BY embedding <=> $queryVec` (cosseno, índice HNSW já existe).
-  - Fundir as duas listas por **RRF** (k=60), como no `gix`. A query também passa
-    por `unaccent` no lado FTS para casar o índice acento-insensível.
-- `Ask` = `Find` + resumo por IA das top-N notas.
-
-### Streaming (SSE)
-- `Chat.Send` recebe um `core.ChatSink`; o adapter HTTP implementa o sink
-  escrevendo eventos SSE (`text/event-stream`). Mapear `ChatEvent.Type`
-  (delta/done/error/usage/note_proposed/alert_proposed) para `data:` lines.
-- Tool-calls (`create_note`/`create_alert`) do chat viram `note_proposed`/
-  `alert_proposed` no stream; o canal confirma e chama a intent CRUD correspondente.
-- Bots (fase 4) ignoram o streaming: usam um sink que acumula e devolve o `done`.
+- ✓ **Relay de IA**: `internal/ai/client.go` (Complete, StreamTools, HasKey).
+- ✓ **Embeddings**: `internal/embed/` (ONNX e5-small, 384 dims, backfill).
+- ✓ **Busca híbrida RRF**: `Notes.Find` (FTS + pgvector + RRF k=60), `Notes.Ask`.
+- ✓ **Summarize / Tidy**: IA pura (sem dependências).
+- ✓ **Capture**: IA estrutura + roteamento (attach vs criar) com `candidateNotes`.
+- ✓ **ResolveOverflow**: part2, summarize, split.
+- ✓ **Alerts.Create / CreateForNote**: parsing de linguagem natural via IA.
+- ✓ **Chat.Send**: SSE streaming + tool-calls (`create_note`, `create_alert`).
 
 ## Fase 3 — scheduler central + push ✓ FEITO
 
