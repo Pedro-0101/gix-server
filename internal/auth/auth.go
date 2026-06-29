@@ -5,6 +5,10 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -15,7 +19,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const tokenTTL = 24 * time.Hour // access token; refresh fica p/ depois
+const (
+	tokenTTL   = 24 * time.Hour      // access token (JWT) — curto, não-revogável
+	refreshTTL = 30 * 24 * time.Hour // refresh token — longo, revogável por rotação
+)
 
 type ctxKey struct{}
 
@@ -47,6 +54,25 @@ func (a *Authenticator) Issue(userID int64) (string, error) {
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.secret)
+}
+
+// NewRefreshToken gera um refresh token opaco. Devolve o valor em claro (vai
+// pro cliente, uma única vez) e o hash sha256 (o que o servidor guarda), além
+// do instante de expiração. O segredo nunca é persistido em claro.
+func (a *Authenticator) NewRefreshToken() (raw, hash string, expiresAt time.Time, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", time.Time{}, err
+	}
+	raw = base64.RawURLEncoding.EncodeToString(b)
+	return raw, HashRefreshToken(raw), time.Now().Add(refreshTTL), nil
+}
+
+// HashRefreshToken devolve o sha256 hex de um refresh token — usado tanto p/
+// gravar quanto p/ procurar na hora de renovar.
+func HashRefreshToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 // parse valida o token e devolve o userID.

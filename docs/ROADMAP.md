@@ -16,31 +16,34 @@ regra de negócio. Antes de adicionar qualquer coisa, pergunte: "isso é lógica
 ## Estado atual (feito)
 
 - `config → store (pgx) → service → httpapi` ligado e testado contra Postgres+pgvector.
-- Auth (bcrypt + JWT + middleware), notas CRUD + grafo, isolamento por usuário.
+- Auth (bcrypt + JWT + middleware + refresh token rotacionável), notas/alertas CRUD
+  + grafo, histórico de conversas, isolamento por usuário.
 - Migration `0001_init.sql` com pgvector, FTS (`tsvector` via wrapper `IMMUTABLE`
   + `unaccent`), e tabelas de notes/alerts/conversations/messages/users/user_prefs.
-- Intents de IA e Alerts/Chat/History satisfazem o contrato mas retornam
+  Migration `0002_refresh_tokens.sql` (hash sha256, expiração, revogação).
+- Camada de dados completa (fase 1): `store/alerts.go`, `store/conversations.go`,
+  `store/tokens.go`; `service/alerts.go` + `service/history.go` saíram do stub.
+- Intents que dependem de IA/embeddings/scheduler (Capture/Find/Ask/Summarize/Tidy,
+  Chat, `Alerts.Create`/`CreateForNote` por linguagem natural) ainda retornam
   `core.ErrNotImplemented` (→ 501).
 
 ---
 
-## Fase 1 (restante) — completar a camada de dados
+## Fase 1 (restante) — completar a camada de dados ✓ FEITO
 
-Portar o resto do `internal/db` do `gix` para o `store`, sem IA. Padrão já
-estabelecido em `internal/store/notes.go` (queries escopadas por `user_id`,
-mapear `pgx.ErrNoRows` → `core.ErrNotFound`, slices nunca nil).
+Portado o resto do `internal/db` do `gix` para o `store`, sem IA. Padrão de
+`internal/store/notes.go` (queries escopadas por `user_id`, `pgx.ErrNoRows` →
+`core.ErrNotFound`, slices nunca nil).
 
-- **`store/alerts.go`** + implementar em `service/stubs.go` (mover `Alerts` p/ um
-  arquivo próprio): `List`, `Cancel`, `Done`, `Snooze`, `CreateProposed` são CRUD
-  puro (sem IA). `Create`/`CreateForNote` dependem de parsing por IA → deixar 501
-  até a fase 2. Reusar a lógica de `recurrence.go` do `gix` ao avançar recorrência.
-- **`store/conversations.go`** + implementar `History` (`List`/`Messages`/`Delete`):
-  CRUD puro, portar de `internal/db/conversations.go`.
-- **Rotas HTTP** correspondentes em `httpapi` (`alerts.go`, `history.go`),
-  seguindo o padrão de `notes.go` (extrair `userID`/`{id}`, mapear erros).
-- **Refresh token** no `auth` (hoje só access token de 24h): endpoint
-  `/v1/auth/refresh` e rotação. Guardar refresh tokens (tabela ou JWT de longa
-  duração com revogação).
+- ✓ **`store/alerts.go`** + `service/alerts.go`: `List`, `Cancel`, `Done`,
+  `Snooze`, `CreateProposed` são CRUD puro. `Create`/`CreateForNote` dependem de
+  parsing por IA → seguem 501 até a fase 2. (Avançar recorrência via
+  `recurrence.go` do `gix` entra no scheduler, fase 3.)
+- ✓ **`store/conversations.go`** + `service/history.go` (`List`/`Messages`/`Delete`).
+- ✓ **Rotas HTTP** em `httpapi` (`alerts.go`, `history.go`), padrão de `notes.go`.
+- ✓ **Refresh token**: `store/tokens.go` + `auth.NewRefreshToken`/`HashRefreshToken`,
+  endpoint `POST /v1/auth/refresh` com rotação (token opaco, guardado por hash
+  sha256, revogado a cada uso). Migration `0002_refresh_tokens.sql`.
 
 ## Fase 2 — embeddings, busca híbrida e relay de IA (o coração)
 

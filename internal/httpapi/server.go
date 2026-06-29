@@ -30,6 +30,7 @@ func New(c *core.Core, a *auth.Authenticator, users *store.Store) http.Handler {
 	// públicas
 	mux.HandleFunc("POST /v1/auth/signup", s.signup)
 	mux.HandleFunc("POST /v1/auth/login", s.login)
+	mux.HandleFunc("POST /v1/auth/refresh", s.refresh)
 
 	// protegidas (Bearer token -> userID no contexto)
 	protected := func(h http.HandlerFunc) http.Handler { return s.auth.Middleware(h) }
@@ -40,6 +41,18 @@ func New(c *core.Core, a *auth.Authenticator, users *store.Store) http.Handler {
 	mux.Handle("PUT /v1/notes/{id}", protected(s.updateNote))
 	mux.Handle("DELETE /v1/notes/{id}", protected(s.deleteNote))
 	mux.Handle("PUT /v1/notes/{id}/char-limit", protected(s.setCharLimit))
+
+	// alertas (CRUD; criação por linguagem natural via IA vem na fase 2)
+	mux.Handle("GET /v1/alerts", protected(s.listAlerts))
+	mux.Handle("POST /v1/alerts", protected(s.createAlert))
+	mux.Handle("POST /v1/alerts/{id}/done", protected(s.doneAlert))
+	mux.Handle("POST /v1/alerts/{id}/cancel", protected(s.cancelAlert))
+	mux.Handle("POST /v1/alerts/{id}/snooze", protected(s.snoozeAlert))
+
+	// histórico de conversas
+	mux.Handle("GET /v1/conversations", protected(s.listConversations))
+	mux.Handle("GET /v1/conversations/{id}/messages", protected(s.conversationMessages))
+	mux.Handle("DELETE /v1/conversations/{id}", protected(s.deleteConversation))
 
 	return mux
 }

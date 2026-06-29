@@ -47,18 +47,24 @@ android  ─┘                          create_alert, ...)        + tsvector (F
 **Fase 0 (fundação & contrato)** — feito: módulo, `internal/core` (contrato de
 tipos + intents), schema Postgres (`migrations/0001_init.sql`), esqueleto HTTP.
 
-**Fase 1 (em andamento)** — funciona ponta a ponta (testado contra Postgres+pgvector):
+**Fase 1 (camada de dados completa)** — funciona ponta a ponta (testado contra Postgres+pgvector):
 - `config` (env/.env) → `store` (pgx + migrations embutidas) → `service`
   (implementa o core) → `httpapi` (REST + auth Bearer).
-- Auth: signup/login com bcrypt + JWT; middleware injeta `userID`; dados isolados
-  por usuário (verificado: outro usuário leva 404 em nota alheia).
+- Auth: signup/login com bcrypt + JWT; refresh token opaco (hash sha256, rotação
+  a cada uso) via `POST /v1/auth/refresh`; middleware injeta `userID`; dados
+  isolados por usuário (verificado: outro usuário leva 404 em recurso alheio).
 - Notas CRUD + grafo: `GET/POST /v1/notes`, `GET/PUT/DELETE /v1/notes/{id}`,
   `PUT /v1/notes/{id}/char-limit`, `GET /v1/notes/graph`.
+- Alertas CRUD: `GET/POST /v1/alerts`, `POST /v1/alerts/{id}/done|cancel|snooze`
+  (criação por linguagem natural fica p/ a IA; este `POST` cria a partir de
+  lembrete já estruturado).
+- Histórico: `GET /v1/conversations`, `GET /v1/conversations/{id}/messages`,
+  `DELETE /v1/conversations/{id}`.
 - `Dockerfile` (binário estático, sem CGO) pronto pra Railway.
 
-Falta na fase 1+: portar alerts/conversations no store, embeddings + busca híbrida,
-relay de IA + SSE, e o deploy na Railway. Intents de IA (Capture/Find/Ask/Summarize/
-Tidy) e Alerts/Chat/History já satisfazem o contrato mas retornam 501 por enquanto.
+Falta (fase 2+): embeddings + busca híbrida, relay de IA + SSE, scheduler+push, e
+o deploy na Railway. As intents de IA (Capture/Find/Ask/Summarize/Tidy, Chat,
+Alerts.Create por linguagem natural) satisfazem o contrato mas retornam 501.
 Roteiro completo: `docs/todo` no repo `gix`.
 
 ## Rodar
