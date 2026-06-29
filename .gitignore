@@ -1,0 +1,17 @@
+# binários
+/bin/
+/gix-server
+*.exe
+
+# env / segredos
+.env
+.env.*
+!.env.example
+
+# modelos ONNX baixados em runtime (e5-small + onnxruntime)
+/models/
+
+# go
+/vendor/
+*.test
+*.out
