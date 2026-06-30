@@ -36,6 +36,10 @@ func New(apiKey string) *Client {
 // status "no_api_key" sem disparar uma chamada que falharia com 401.
 func (c *Client) HasKey() bool { return c.apiKey != "" }
 
+// Key expõe a chave padrão do servidor (fallback quando o usuário não configurou
+// a própria). Usado por service.AI.resolveKey.
+func (c *Client) Key() string { return c.apiKey }
+
 // Tool descreve uma função que o modelo pode chamar (tool calling).
 type Tool struct {
 	Type     string       `json:"type"`
@@ -84,8 +88,14 @@ type completion struct {
 
 // Complete faz uma chamada não-streaming (stream:false) e retorna o conteúdo
 // inteiro da primeira choice mais o Usage. Usado para respostas estruturadas
-// (JSON) como o roteamento de notas. Status != 2xx vira erro com o corpo.
-func (c *Client) Complete(ctx context.Context, model string, messages []Message) (string, *Usage, error) {
+// (JSON) como o roteamento de notas. apiKey é a chave do usuário (vinda dos
+// prefs); se vazia, usa a chave padrão do servidor. Status != 2xx vira erro.
+func (c *Client) Complete(ctx context.Context, apiKey, model string, messages []Message) (string, *Usage, error) {
+	key := apiKey
+	if key == "" {
+		key = c.apiKey
+	}
+
 	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Stream: false})
 	if err != nil {
 		return "", nil, err
@@ -95,7 +105,7 @@ func (c *Client) Complete(ctx context.Context, model string, messages []Message)
 	if err != nil {
 		return "", nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Title", "gix")
 
@@ -138,15 +148,21 @@ type streamChunk struct {
 }
 
 // Stream mantém a interface antiga: stream de texto, sem ferramentas.
-func (c *Client) Stream(ctx context.Context, model string, messages []Message, onDelta func(string)) (*Usage, error) {
-	u, _, err := c.StreamTools(ctx, model, messages, nil, onDelta)
+func (c *Client) Stream(ctx context.Context, apiKey, model string, messages []Message, onDelta func(string)) (*Usage, error) {
+	u, _, err := c.StreamTools(ctx, apiKey, model, messages, nil, onDelta)
 	return u, err
 }
 
 // StreamTools faz a chamada com stream:true, repassa texto via onDelta e remonta
 // quaisquer tool_calls (argumentos chegam em pedaços por índice). Retorna o Usage
-// e as tool calls completas. ctx cancelado aborta; status != 2xx vira erro.
-func (c *Client) StreamTools(ctx context.Context, model string, messages []Message, tools []Tool, onDelta func(string)) (*Usage, []ToolCall, error) {
+// e as tool calls completas. apiKey é a chave do usuário (vinda dos prefs); se
+// vazia, usa a chave padrão do servidor. ctx cancelado aborta; status != 2xx vira erro.
+func (c *Client) StreamTools(ctx context.Context, apiKey, model string, messages []Message, tools []Tool, onDelta func(string)) (*Usage, []ToolCall, error) {
+	key := apiKey
+	if key == "" {
+		key = c.apiKey
+	}
+
 	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Stream: true, Tools: tools})
 	if err != nil {
 		return nil, nil, err
@@ -156,7 +172,7 @@ func (c *Client) StreamTools(ctx context.Context, model string, messages []Messa
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Title", "gix")
 

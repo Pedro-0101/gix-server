@@ -366,12 +366,13 @@ func (n *Notes) Ask(ctx context.Context, userID int64, query string) (core.AskRe
 		results = results[:askTopK]
 	}
 
-	if !n.ai.hasKey() {
+	key := n.ai.resolveKey(ctx, n.store, userID)
+	if key == "" {
 		return core.AskResult{Status: "no_api_key", Sources: results}, nil
 	}
 
 	language := n.loadLang(ctx, userID)
-	summary, usage, err := n.ai.complete(ctx, buildAskPrompt(query, results, lang(language)))
+	summary, usage, err := n.ai.complete(ctx, key, buildAskPrompt(query, results, lang(language)))
 	if err != nil {
 		return core.AskResult{Status: "error", Message: err.Error(), Sources: results}, nil
 	}
@@ -422,14 +423,15 @@ func (n *Notes) Capture(ctx context.Context, userID int64, text string) (core.Ca
 	if text == "" {
 		return core.CaptureResult{Status: "error", Message: "empty"}, nil
 	}
-	if !n.ai.hasKey() {
+	key := n.ai.resolveKey(ctx, n.store, userID)
+	if key == "" {
 		return core.CaptureResult{Status: "no_api_key"}, nil
 	}
 
 	cands := n.candidateNotes(ctx, userID, text)
 	language := n.loadLang(ctx, userID)
 
-	raw, usage, err := n.ai.complete(ctx, buildCapturePrompt(text, time.Now(), cands, lang(language)))
+	raw, usage, err := n.ai.complete(ctx, key, buildCapturePrompt(text, time.Now(), cands, lang(language)))
 	if err != nil {
 		return core.CaptureResult{Status: "error", Message: err.Error()}, nil
 	}
@@ -635,12 +637,13 @@ func (n *Notes) overflowPart2(ctx context.Context, userID int64, title, content 
 // overflowSummarize mescla o novo conteúdo na nota e substitui o corpo por um
 // resumo de IA de tudo, cabendo no limite.
 func (n *Notes) overflowSummarize(ctx context.Context, userID int64, note core.Note, content string, tags []string) (core.CaptureResult, error) {
-	if !n.ai.hasKey() {
+	key := n.ai.resolveKey(ctx, n.store, userID)
+	if key == "" {
 		return core.CaptureResult{Status: "no_api_key"}, nil
 	}
 	merged := strings.TrimSpace(note.Content) + "\n\n" + content
 	language := n.loadLang(ctx, userID)
-	summary, usage, err := n.ai.complete(ctx, buildNoteSummaryPrompt(core.Note{Title: note.Title, Content: merged}, lang(language)))
+	summary, usage, err := n.ai.complete(ctx, key, buildNoteSummaryPrompt(core.Note{Title: note.Title, Content: merged}, lang(language)))
 	if err != nil {
 		return core.CaptureResult{Status: "error", Message: err.Error()}, nil
 	}
@@ -659,12 +662,13 @@ func (n *Notes) overflowSummarize(ctx context.Context, userID int64, note core.N
 // overflowSplit mescla tudo e pede à IA para dividir em notas temáticas.
 // Se a IA não devolver algo utilizável, cai para append simples.
 func (n *Notes) overflowSplit(ctx context.Context, userID int64, note core.Note, content string) (core.CaptureResult, error) {
-	if !n.ai.hasKey() {
+	key := n.ai.resolveKey(ctx, n.store, userID)
+	if key == "" {
 		return core.CaptureResult{Status: "no_api_key"}, nil
 	}
 	merged := strings.TrimSpace(note.Content) + "\n\n" + content
 	language := n.loadLang(ctx, userID)
-	raw, usage, err := n.ai.complete(ctx, buildNoteSplitPrompt(note.Title, merged, lang(language)))
+	raw, usage, err := n.ai.complete(ctx, key, buildNoteSplitPrompt(note.Title, merged, lang(language)))
 	if err != nil {
 		return core.CaptureResult{Status: "error", Message: err.Error()}, nil
 	}
@@ -747,7 +751,8 @@ func nextPartTitle(title string) string {
 // devolve o texto; quem aplica/desfaz é a camada acima (mantém o undo simétrico
 // entre o comando e o botão da UI).
 func (n *Notes) Summarize(ctx context.Context, userID, id int64) (core.SummarizeResult, error) {
-	if !n.ai.hasKey() {
+	key := n.ai.resolveKey(ctx, n.store, userID)
+	if key == "" {
 		return core.SummarizeResult{Status: "no_api_key"}, nil
 	}
 	note, err := n.store.GetNote(ctx, userID, id)
@@ -758,7 +763,7 @@ func (n *Notes) Summarize(ctx context.Context, userID, id int64) (core.Summarize
 		return core.SummarizeResult{Status: "empty"}, nil
 	}
 	language := n.loadLang(ctx, userID)
-	summary, usage, err := n.ai.complete(ctx, buildNoteSummaryPrompt(note, lang(language)))
+	summary, usage, err := n.ai.complete(ctx, key, buildNoteSummaryPrompt(note, lang(language)))
 	if err != nil {
 		return core.SummarizeResult{Status: "error", Message: err.Error()}, nil
 	}
@@ -769,7 +774,8 @@ func (n *Notes) Summarize(ctx context.Context, userID, id int64) (core.Summarize
 // a informação — não resume. Como Summarize, só devolve o corpo novo; a aplicação
 // (com undo) é da camada acima.
 func (n *Notes) Tidy(ctx context.Context, userID, id int64) (core.TidyResult, error) {
-	if !n.ai.hasKey() {
+	key := n.ai.resolveKey(ctx, n.store, userID)
+	if key == "" {
 		return core.TidyResult{Status: "no_api_key"}, nil
 	}
 	note, err := n.store.GetNote(ctx, userID, id)
@@ -780,7 +786,7 @@ func (n *Notes) Tidy(ctx context.Context, userID, id int64) (core.TidyResult, er
 		return core.TidyResult{Status: "empty"}, nil
 	}
 	language := n.loadLang(ctx, userID)
-	content, usage, err := n.ai.complete(ctx, buildNoteTidyPrompt(note, lang(language)))
+	content, usage, err := n.ai.complete(ctx, key, buildNoteTidyPrompt(note, lang(language)))
 	if err != nil {
 		return core.TidyResult{Status: "error", Message: err.Error()}, nil
 	}

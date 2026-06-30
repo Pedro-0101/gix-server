@@ -17,7 +17,7 @@ func mockCore() *core.Core {
 }
 
 func TestHealthz(t *testing.T) {
-	srv := httptest.NewServer(New(nil, nil, nil, nil, []string{"*"}))
+	srv := httptest.NewServer(New(nil, nil, nil, nil, nil, []string{"*"}))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/healthz")
@@ -31,7 +31,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestAuthSignupNoBody(t *testing.T) {
-	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), []string{"*"}))
+	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), nil, []string{"*"}))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/v1/auth/signup", "application/json", nil)
@@ -45,7 +45,7 @@ func TestAuthSignupNoBody(t *testing.T) {
 }
 
 func TestAuthLoginNoBody(t *testing.T) {
-	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), []string{"*"}))
+	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), nil, []string{"*"}))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/v1/auth/login", "application/json", nil)
@@ -59,7 +59,7 @@ func TestAuthLoginNoBody(t *testing.T) {
 }
 
 func TestProtectedRouteWithoutToken(t *testing.T) {
-	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), []string{"*"}))
+	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), nil, []string{"*"}))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/v1/notes")
@@ -73,7 +73,7 @@ func TestProtectedRouteWithoutToken(t *testing.T) {
 }
 
 func TestRefreshWithoutToken(t *testing.T) {
-	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), []string{"*"}))
+	srv := httptest.NewServer(New(mockCore(), auth.New("test-secret-12345678"), &store.Store{}, NewPushHub(&store.Store{}), nil, []string{"*"}))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/v1/auth/refresh", "application/json", nil)

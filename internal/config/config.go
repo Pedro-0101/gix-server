@@ -23,6 +23,9 @@ type Config struct {
 	AIModel       string // modelo OpenRouter usado em todas as intents de IA
 	EmbedModelPath string // diretório local do modelo ONNX (default "data/embed-model")
 	CORSOrigins   []string // origens permitidas no CORS; default "*" (libera todas, ok p/ dev)
+	GoogleClientID     string // Google OAuth2 client ID
+	GoogleClientSecret string // Google OAuth2 client secret
+	GoogleRedirectURL  string // Google OAuth2 redirect URL
 }
 
 // Load lê o ambiente. Não valida campos obrigatórios — quem precisa decide
@@ -30,13 +33,16 @@ type Config struct {
 func Load() Config {
 	_ = godotenv.Load() // sem .env? segue com o ambiente do processo.
 	return Config{
-		Port:          getenv("PORT", "8080"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		JWTSecret:     os.Getenv("JWT_SECRET"),
-		OpenRouterKey: os.Getenv("OPENROUTER_API_KEY"),
-		AIModel:        getenv("AI_MODEL", DefaultModel),
-		EmbedModelPath: getenv("EMBED_MODEL_PATH", "data/embed-model"),
-		CORSOrigins:    splitOrigins(getenv("CORS_ALLOWED_ORIGINS", "*")),
+		Port:               getenv("PORT", "8080"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		JWTSecret:          os.Getenv("JWT_SECRET"),
+		OpenRouterKey:      os.Getenv("OPENROUTER_API_KEY"),
+		AIModel:             getenv("AI_MODEL", DefaultModel),
+		EmbedModelPath:      getenv("EMBED_MODEL_PATH", "data/embed-model"),
+		CORSOrigins:         splitOrigins(getenv("CORS_ALLOWED_ORIGINS", "*")),
+		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret:  os.Getenv("GOOGLE_CLIENT_SECRET"),
+		GoogleRedirectURL:   os.Getenv("GOOGLE_REDIRECT_URL"),
 	}
 }
 

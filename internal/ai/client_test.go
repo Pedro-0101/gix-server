@@ -34,7 +34,7 @@ func TestStreamAccumulatesDeltas(t *testing.T) {
 	c.baseURL = srv.URL
 
 	var got strings.Builder
-	_, err := c.Stream(context.Background(), "m", []Message{{Role: "user", Content: "oi"}},
+	_, err := c.Stream(context.Background(), "", "m", []Message{{Role: "user", Content: "oi"}},
 		func(s string) { got.WriteString(s) })
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
@@ -60,7 +60,7 @@ func TestCompleteReturnsContentAndUsage(t *testing.T) {
 	c := New("testkey")
 	c.baseURL = srv.URL
 
-	content, usage, err := c.Complete(context.Background(), "m", []Message{{Role: "user", Content: "oi"}})
+	content, usage, err := c.Complete(context.Background(), "", "m", []Message{{Role: "user", Content: "oi"}})
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestCompleteErrorOnNon2xx(t *testing.T) {
 
 	c := New("ruim")
 	c.baseURL = srv.URL
-	if _, _, err := c.Complete(context.Background(), "m", []Message{{Role: "user", Content: "x"}}); err == nil {
+	if _, _, err := c.Complete(context.Background(), "", "m", []Message{{Role: "user", Content: "x"}}); err == nil {
 		t.Fatal("esperava erro, veio nil")
 	} else if !strings.Contains(err.Error(), "401") {
 		t.Errorf("erro deveria citar status 401: %v", err)
@@ -97,7 +97,7 @@ func TestStreamErrorOnNon2xx(t *testing.T) {
 
 	c := New("ruim")
 	c.baseURL = srv.URL
-	_, err := c.Stream(context.Background(), "m", []Message{{Role: "user", Content: "x"}}, func(string) {})
+	_, err := c.Stream(context.Background(), "", "m", []Message{{Role: "user", Content: "x"}}, func(string) {})
 	if err == nil {
 		t.Fatal("esperava erro, veio nil")
 	}
@@ -116,7 +116,7 @@ func TestStreamCancelled(t *testing.T) {
 	c.baseURL = srv.URL
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := c.Stream(ctx, "m", []Message{{Role: "user", Content: "x"}}, func(string) {}); err == nil {
+	if _, err := c.Stream(ctx, "", "m", []Message{{Role: "user", Content: "x"}}, func(string) {}); err == nil {
 		t.Fatal("esperava erro de contexto cancelado")
 	}
 }
@@ -141,7 +141,7 @@ func TestStreamCancelledMidStream(t *testing.T) {
 
 	c := New("k")
 	c.baseURL = srv.URL
-	_, err := c.Stream(ctx, "m", []Message{{Role: "user", Content: "x"}}, func(s string) {
+	_, err := c.Stream(ctx, "", "m", []Message{{Role: "user", Content: "x"}}, func(s string) {
 		cancel() // cancela ao receber o primeiro delta (mid-stream)
 	})
 	if err == nil {
@@ -168,7 +168,7 @@ func TestStreamToolsAccumulatesToolCallDeltas(t *testing.T) {
 	c.baseURL = srv.URL
 
 	var text strings.Builder
-	usage, calls, err := c.StreamTools(context.Background(), "m",
+	usage, calls, err := c.StreamTools(context.Background(), "", "m",
 		[]Message{{Role: "user", Content: "oi"}}, []Tool{{Type: "function"}},
 		func(s string) { text.WriteString(s) })
 	if err != nil {
@@ -212,7 +212,7 @@ func TestStreamToolsMultipleToolCalls(t *testing.T) {
 	c.baseURL = srv.URL
 
 	var text strings.Builder
-	_, calls, err := c.StreamTools(context.Background(), "m",
+	_, calls, err := c.StreamTools(context.Background(), "", "m",
 		[]Message{{Role: "user", Content: "oi"}}, []Tool{{Type: "function"}},
 		func(s string) { text.WriteString(s) })
 	if err != nil {

@@ -8,9 +8,28 @@ import (
 	"github.com/Pedro-0101/gix-server/internal/ai"
 	"github.com/Pedro-0101/gix-server/internal/config"
 	"github.com/Pedro-0101/gix-server/internal/core"
+	"github.com/Pedro-0101/gix-server/internal/store"
 )
 
-// hasKey informa se há chave de IA configurada (status "no_api_key" sem chamar).
+// resolveKey retorna a chave OpenRouter efetiva para o usuário: primeiro
+// tenta a chave configurada nos user_prefs (openrouter_key); se não houver,
+// cai para a chave do servidor (OPENROUTER_API_KEY). Retorna "" se nenhuma
+// estiver disponível.
+func (a AI) resolveKey(ctx context.Context, s *store.Store, userID int64) string {
+	if s != nil {
+		key, err := s.GetUserOpenRouterKey(ctx, userID)
+		if err == nil && key != "" {
+			return key
+		}
+	}
+	if a.Client != nil {
+		return a.Client.Key()
+	}
+	return ""
+}
+
+// hasKey informa se há chave de IA configurada no servidor (não por usuário).
+// Intents que precisam de chave por usuário usam resolveKey.
 func (a AI) hasKey() bool { return a.Client != nil && a.Client.HasKey() }
 
 // lang returns the user language or the default "Português do Brasil".
@@ -23,8 +42,9 @@ func lang(l string) string {
 
 // complete faz uma chamada não-streaming e devolve o texto (sem cercas) e o
 // Usage já convertido para o contrato do core (tokens + custo no modelo).
-func (a AI) complete(ctx context.Context, msgs []ai.Message) (string, core.Usage, error) {
-	raw, usage, err := a.Client.Complete(ctx, a.Model, msgs)
+// apiKey é a chave do usuário (vinda dos prefs); se vazia, usa a chave do servidor.
+func (a AI) complete(ctx context.Context, apiKey string, msgs []ai.Message) (string, core.Usage, error) {
+	raw, usage, err := a.Client.Complete(ctx, apiKey, a.Model, msgs)
 	if err != nil {
 		return "", core.Usage{}, err
 	}

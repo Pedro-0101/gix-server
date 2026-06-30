@@ -35,6 +35,10 @@ func New(secret string) *Authenticator {
 	return &Authenticator{secret: []byte(secret)}
 }
 
+func (a *Authenticator) Secret() string {
+	return string(a.secret)
+}
+
 // Hash gera o hash bcrypt de uma senha.
 func (a *Authenticator) Hash(password string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

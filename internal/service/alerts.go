@@ -7,10 +7,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/Pedro-0101/gix-server/internal/core"
+	"github.com/Pedro-0101/gix-server/internal/gcal"
 	"github.com/Pedro-0101/gix-server/internal/store"
 )
 
@@ -20,9 +22,49 @@ const gracePeriod = 15 * time.Second
 type Alerts struct {
 	store *store.Store
 	ai    AI
+	gcal  *gcal.Client
 }
 
-func NewAlerts(s *store.Store, aiDeps AI) *Alerts { return &Alerts{store: s, ai: aiDeps} }
+func NewAlerts(s *store.Store, aiDeps AI, gcalClient *gcal.Client) *Alerts {
+	return &Alerts{store: s, ai: aiDeps, gcal: gcalClient}
+}
+
+func (a *Alerts) gcalEnabled(ctx context.Context, userID int64) bool {
+	if a.gcal == nil || !a.gcal.IsConfigured() {
+		return false
+	}
+	prefs, err := a.store.GetUserPrefs(ctx, userID)
+	if err != nil {
+		return false
+	}
+	return prefs.GCalSyncEnabled
+}
+
+func (a *Alerts) syncAlert(ctx context.Context, userID int64, alert *core.Alert) {
+	if !a.gcalEnabled(ctx, userID) {
+		return
+	}
+	eventID, err := a.gcal.CreateEvent(ctx, userID, alert)
+	if err != nil {
+		slog.Warn("gcal: falha ao criar evento", "alertID", alert.ID, "err", err)
+		return
+	}
+	if err := a.store.SetGCalEventID(ctx, alert.ID, eventID); err != nil {
+		slog.Warn("gcal: falha ao vincular evento", "alertID", alert.ID, "eventID", eventID, "err", err)
+	}
+}
+
+func (a *Alerts) unsyncAlert(ctx context.Context, userID int64, alert *core.Alert) {
+	if alert.GoogleCalendarEventID == "" {
+		return
+	}
+	if !a.gcalEnabled(ctx, userID) {
+		return
+	}
+	if err := a.gcal.DeleteEvent(ctx, userID, alert.GoogleCalendarEventID); err != nil {
+		slog.Warn("gcal: falha ao remover evento", "alertID", alert.ID, "eventID", alert.GoogleCalendarEventID, "err", err)
+	}
+}
 
 var _ core.Alerts = (*Alerts)(nil)
 
@@ -57,6 +99,7 @@ func (a *Alerts) CreateProposed(ctx context.Context, userID int64, message, fire
 	if err != nil {
 		return core.CreateAlertResult{Status: "error", Message: err.Error()}, err
 	}
+	a.syncAlert(ctx, userID, &created)
 	return core.CreateAlertResult{
 		Status:      "created",
 		AlertID:     created.ID,
@@ -66,16 +109,40 @@ func (a *Alerts) CreateProposed(ctx context.Context, userID int64, message, fire
 }
 
 func (a *Alerts) Cancel(ctx context.Context, userID, id int64) error {
+	alert, err := a.store.GetAlert(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	a.unsyncAlert(ctx, userID, &alert)
 	return a.store.SetAlertStatus(ctx, userID, id, "cancelled")
 }
 
 func (a *Alerts) Done(ctx context.Context, userID, id int64) error {
+	alert, err := a.store.GetAlert(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	a.unsyncAlert(ctx, userID, &alert)
 	return a.store.SetAlertStatus(ctx, userID, id, "done")
 }
 
 // Snooze reagenda o alerta p/ daqui a `minutes` minutos, mantendo-o pendente.
 func (a *Alerts) Snooze(ctx context.Context, userID, id int64, minutes int) error {
-	return a.store.UpdateAlertFireAt(ctx, userID, id, time.Now().Add(time.Duration(minutes)*time.Minute))
+	alert, err := a.store.GetAlert(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	newFireAt := time.Now().Add(time.Duration(minutes) * time.Minute)
+	if err := a.store.UpdateAlertFireAt(ctx, userID, id, newFireAt); err != nil {
+		return err
+	}
+	if alert.GoogleCalendarEventID != "" && a.gcalEnabled(ctx, userID) {
+		alert.FireAt = newFireAt
+		if err := a.gcal.UpdateEvent(ctx, userID, alert.GoogleCalendarEventID, &alert); err != nil {
+			slog.Warn("gcal: falha ao atualizar evento no snooze", "alertID", id, "err", err)
+		}
+	}
+	return nil
 }
 
 // --- dependem de IA (parsing de tempo em linguagem natural) ----------------
@@ -113,7 +180,7 @@ func (d *alertDecision) UnmarshalJSON(b []byte) error {
 
 // parseWhen chama a IA para extrair data/hora de um texto em linguagem natural.
 // Retorna o decision e o Usage; se a IA não conseguir parsear, fireAt vem vazio.
-func (a *Alerts) parseWhen(ctx context.Context, userID int64, text, ctxMsg string) (alertDecision, core.Usage, error) {
+func (a *Alerts) parseWhen(ctx context.Context, userID int64, key string, text, ctxMsg string) (alertDecision, core.Usage, error) {
 	loc, err := a.userLocation(ctx, userID)
 	if err != nil {
 		return alertDecision{}, core.Usage{}, err
@@ -121,7 +188,7 @@ func (a *Alerts) parseWhen(ctx context.Context, userID int64, text, ctxMsg strin
 	now := time.Now().In(loc)
 	language := a.loadLang(ctx, userID)
 
-	raw, usage, err := a.ai.complete(ctx, buildAlertPrompt(text, ctxMsg, now, lang(language)))
+	raw, usage, err := a.ai.complete(ctx, key, buildAlertPrompt(text, ctxMsg, now, lang(language)))
 	if err != nil {
 		return alertDecision{}, core.Usage{}, err
 	}
@@ -152,14 +219,15 @@ func (a *Alerts) userLocation(ctx context.Context, userID int64) (*time.Location
 // Create cria um lembrete a partir de linguagem natural (ex.: "me lembre de
 // comprar pão amanhã às 10h"). Usa IA para extrair data/hora e recorrência.
 func (a *Alerts) Create(ctx context.Context, userID int64, text string) (core.CreateAlertResult, error) {
-	if !a.ai.hasKey() {
+	key := a.ai.resolveKey(ctx, a.store, userID)
+	if key == "" {
 		return core.CreateAlertResult{Status: "no_api_key"}, nil
 	}
 	if strings.TrimSpace(text) == "" {
 		return core.CreateAlertResult{Status: "unparseable", Message: "texto vazio"}, nil
 	}
 
-	dec, usage, err := a.parseWhen(ctx, userID, text, "")
+	dec, usage, err := a.parseWhen(ctx, userID, key, text, "")
 	if err != nil {
 		return core.CreateAlertResult{Status: "error", Message: err.Error()}, err
 	}
@@ -178,7 +246,8 @@ func (a *Alerts) Create(ctx context.Context, userID int64, text string) (core.Cr
 // (ex.: "daqui 1 hora", "amanhã às 9h"). Usa o título da nota como mensagem
 // default e o conteúdo como contexto.
 func (a *Alerts) CreateForNote(ctx context.Context, userID, noteID int64, whenText string) (core.CreateAlertResult, error) {
-	if !a.ai.hasKey() {
+	key := a.ai.resolveKey(ctx, a.store, userID)
+	if key == "" {
 		return core.CreateAlertResult{Status: "no_api_key"}, nil
 	}
 
@@ -192,7 +261,7 @@ func (a *Alerts) CreateForNote(ctx context.Context, userID, noteID int64, whenTe
 		ctxMsg += "\n\n" + note.Content
 	}
 
-	dec, usage, err := a.parseWhen(ctx, userID, whenText, ctxMsg)
+	dec, usage, err := a.parseWhen(ctx, userID, key, whenText, ctxMsg)
 	if err != nil {
 		return core.CreateAlertResult{Status: "error", Message: err.Error()}, err
 	}
@@ -249,6 +318,7 @@ func (a *Alerts) createFromDecision(ctx context.Context, userID int64, message, 
 	if err != nil {
 		return core.CreateAlertResult{Status: "error", Message: err.Error()}, err
 	}
+	a.syncAlert(ctx, userID, &created)
 
 	return core.CreateAlertResult{
 		Status:      "created",

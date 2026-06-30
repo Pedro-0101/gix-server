@@ -24,13 +24,14 @@ type Note struct {
 
 // Alert é um lembrete agendado. O disparo é server-side (ver scheduler).
 type Alert struct {
-	ID         int64     `json:"id"`
-	Message    string    `json:"message"`
-	NoteID     *int64    `json:"noteId"` // vínculo fraco com a nota de origem
-	FireAt     time.Time `json:"fireAt"`
-	Recurrence string    `json:"recurrence"` // "" = one-shot, senão regra JSON
-	Status     string    `json:"status"`     // pending | done | cancelled
-	CreatedAt  time.Time `json:"createdAt"`
+	ID                     int64     `json:"id"`
+	Message                string    `json:"message"`
+	NoteID                 *int64    `json:"noteId"` // vínculo fraco com a nota de origem
+	FireAt                 time.Time `json:"fireAt"`
+	Recurrence             string    `json:"recurrence"`             // "" = one-shot, senão regra JSON
+	Status                 string    `json:"status"`                 // pending | done | cancelled
+	CreatedAt              time.Time `json:"createdAt"`
+	GoogleCalendarEventID  string    `json:"googleCalendarEventId"`  // evento do Google Calendar
 }
 
 // Conversation é uma sessão de chat.
@@ -82,7 +83,7 @@ type CaptureResult struct {
 
 // AskResult é a resposta de /ask: resumo de IA sobre as notas mais relevantes.
 type AskResult struct {
-	Status  string         `json:"status"` // ok | no_api_key | error
+	Status  string         `json:"status"` // ok | no_api_key | empty | error
 	Summary string         `json:"summary"`
 	Sources []SearchResult `json:"sources"`
 	Message string         `json:"message"`

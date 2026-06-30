@@ -14,8 +14,26 @@ type hfConfig struct {
 
 type hfModel struct {
 	Type     string          `json:"type"`
-	Vocab    map[string]int32 `json:"vocab"`
+	Vocab    hfVocab         `json:"vocab"`
 	UnkToken string          `json:"unk_token"`
+}
+
+type hfVocab map[string]int32
+
+func (v *hfVocab) UnmarshalJSON(data []byte) error {
+	var arr [][]interface{}
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+	*v = make(hfVocab, len(arr))
+	for i, entry := range arr {
+		if len(entry) < 1 {
+			continue
+		}
+		tok, _ := entry[0].(string)
+		(*v)[tok] = int32(i)
+	}
+	return nil
 }
 
 // Tokenizer implementa WordPiece tokenization lendo tokenizer.json da HF.

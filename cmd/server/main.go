@@ -20,6 +20,7 @@ import (
 	"github.com/Pedro-0101/gix-server/internal/auth"
 	"github.com/Pedro-0101/gix-server/internal/config"
 	"github.com/Pedro-0101/gix-server/internal/embed"
+	"github.com/Pedro-0101/gix-server/internal/gcal"
 	"github.com/Pedro-0101/gix-server/internal/httpapi"
 	"github.com/Pedro-0101/gix-server/internal/scheduler"
 	"github.com/Pedro-0101/gix-server/internal/service"
@@ -68,7 +69,8 @@ func main() {
 		Model:    cfg.AIModel,
 		Embedder: embedder,
 	}
-	handler := httpapi.New(service.NewCore(st, aiDeps), auth.New(cfg.JWTSecret), st, hub, cfg.CORSOrigins)
+	gcalClient := gcal.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL, st)
+	handler := httpapi.New(service.NewCore(st, aiDeps, gcalClient), auth.New(cfg.JWTSecret), st, hub, gcalClient, cfg.CORSOrigins)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Pedro-0101/gix-server/internal/auth"
 	"github.com/Pedro-0101/gix-server/internal/core"
+	"github.com/Pedro-0101/gix-server/internal/gcal"
 	"github.com/Pedro-0101/gix-server/internal/ratelimit"
 	"github.com/Pedro-0101/gix-server/internal/store"
 )
@@ -20,19 +21,23 @@ type Server struct {
 	users *store.Store
 	push  *PushHub
 	rl    *ratelimit.Store
+	gcal  *gcal.Client
 }
 
 // New monta o roteador. Rotas /v1/auth são públicas; o resto exige Bearer token.
 // Rotas normais: rate=10 req/s burst=20; streaming (chat, push): rate=2 burst=5.
 // corsOrigins lista as origens liberadas no CORS (ex.: ["*"]).
-func New(c *core.Core, a *auth.Authenticator, users *store.Store, push *PushHub, corsOrigins []string) http.Handler {
-	s := &Server{core: c, auth: a, users: users, push: push, rl: ratelimit.New()}
+func New(c *core.Core, a *auth.Authenticator, users *store.Store, push *PushHub, gcalClient *gcal.Client, corsOrigins []string) http.Handler {
+	s := &Server{core: c, auth: a, users: users, push: push, rl: ratelimit.New(), gcal: gcalClient}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+
+	// documentação da API (pública, para consumo de IAs e devs)
+	mux.HandleFunc("GET /v1/docs", s.getDocs)
 
 	// públicas
 	mux.HandleFunc("POST /v1/auth/signup", s.signup)
@@ -45,6 +50,9 @@ func New(c *core.Core, a *auth.Authenticator, users *store.Store, push *PushHub,
 	}
 	streaming := func(h http.HandlerFunc) http.Handler {
 		return s.rateLimit(2, 5)(s.auth.Middleware(h))
+	}
+	publicLimited := func(h http.HandlerFunc) http.Handler {
+		return s.rateLimit(10, 20)(http.HandlerFunc(h))
 	}
 	mux.Handle("GET /v1/notes", protected(s.listNotes))
 	mux.Handle("POST /v1/notes", protected(s.createNote))
@@ -88,6 +96,12 @@ func New(c *core.Core, a *auth.Authenticator, users *store.Store, push *PushHub,
 
 	// push de saída: stream SSE — rate menor por ser conexão longa
 	mux.Handle("GET /v1/push", streaming(s.streamPush))
+
+	// Google Calendar OAuth
+	mux.Handle("GET /v1/auth/google/url", protected(s.googleAuthURL))
+	mux.Handle("GET /v1/auth/google/callback", publicLimited(s.googleAuthCallback))
+	mux.Handle("GET /v1/auth/google/status", protected(s.googleAuthStatus))
+	mux.Handle("POST /v1/auth/google/disconnect", protected(s.googleAuthDisconnect))
 
 	return loggingMiddleware(corsMiddleware(corsOrigins)(mux))
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/Pedro-0101/gix-server/internal/ai"
 	"github.com/Pedro-0101/gix-server/internal/core"
 	"github.com/Pedro-0101/gix-server/internal/embed"
+	"github.com/Pedro-0101/gix-server/internal/gcal"
 	"github.com/Pedro-0101/gix-server/internal/store"
 )
 
@@ -34,10 +35,10 @@ func ParseListOptions(limit, offset int) ListOptions {
 // NewCore monta o core a partir do store e das deps de IA, ligando cada domínio
 // à sua implementação. Notes/Alerts/Chat recebem o relay de IA; History é CRUD
 // puro sobre o store.
-func NewCore(s *store.Store, aiDeps AI) *core.Core {
+func NewCore(s *store.Store, aiDeps AI, gcalClient *gcal.Client) *core.Core {
 	return &core.Core{
 		Notes:   NewNotes(s, aiDeps),
-		Alerts:  NewAlerts(s, aiDeps),
+		Alerts:  NewAlerts(s, aiDeps, gcalClient),
 		Chat:    NewChat(s, aiDeps),
 		History: NewHistory(s),
 	}

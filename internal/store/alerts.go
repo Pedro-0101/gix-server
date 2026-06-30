@@ -11,7 +11,7 @@ import (
 )
 
 // alertCols é a ordem canônica de leitura de um alerta.
-const alertCols = "id, message, note_id, fire_at, recurrence, status, created_at"
+const alertCols = "id, message, note_id, fire_at, recurrence, status, created_at, COALESCE(google_calendar_event_id,'')"
 
 // ListAlerts retorna os alertas do usuário, mais cedo primeiro. Nunca nil.
 func (s *Store) ListAlerts(ctx context.Context, userID int64, p Pagination) ([]core.Alert, error) {
@@ -77,6 +77,13 @@ func (s *Store) UpdateAlertFireAt(ctx context.Context, userID, id int64, fireAt 
 	return nil
 }
 
+// SetGCalEventID vincula um alerta a um evento do Google Calendar.
+func (s *Store) SetGCalEventID(ctx context.Context, id int64, eventID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE alerts SET google_calendar_event_id = $2 WHERE id = $1`, id, eventID)
+	return err
+}
+
 // DueAlert é um alerta pendente vencido, com o dono e o fuso resolvidos — o que
 // o scheduler precisa p/ rotear o push e avançar a recorrência na parede certa.
 // core.Alert não carrega user_id/timezone (é escopado por fora); o scheduler é
@@ -92,7 +99,7 @@ type DueAlert struct {
 func (s *Store) DueAlerts(ctx context.Context, now time.Time) ([]DueAlert, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT a.id, a.message, a.note_id, a.fire_at, a.recurrence, a.status, a.created_at,
-		        a.user_id, COALESCE(p.timezone, 'UTC')
+		        COALESCE(a.google_calendar_event_id,''), a.user_id, COALESCE(p.timezone, 'UTC')
 		   FROM alerts a
 		   LEFT JOIN user_prefs p ON p.user_id = a.user_id
 		  WHERE a.status = 'pending' AND a.fire_at <= $1
@@ -106,7 +113,7 @@ func (s *Store) DueAlerts(ctx context.Context, now time.Time) ([]DueAlert, error
 	for rows.Next() {
 		var d DueAlert
 		if err := rows.Scan(&d.ID, &d.Message, &d.NoteID, &d.FireAt, &d.Recurrence,
-			&d.Status, &d.CreatedAt, &d.UserID, &d.Timezone); err != nil {
+			&d.Status, &d.CreatedAt, &d.GoogleCalendarEventID, &d.UserID, &d.Timezone); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -116,7 +123,7 @@ func (s *Store) DueAlerts(ctx context.Context, now time.Time) ([]DueAlert, error
 
 func scanAlert(row pgx.Row) (core.Alert, error) {
 	var a core.Alert
-	err := row.Scan(&a.ID, &a.Message, &a.NoteID, &a.FireAt, &a.Recurrence, &a.Status, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.Message, &a.NoteID, &a.FireAt, &a.Recurrence, &a.Status, &a.CreatedAt, &a.GoogleCalendarEventID)
 	return a, err
 }
 
