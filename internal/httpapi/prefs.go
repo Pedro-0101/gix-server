@@ -19,11 +19,14 @@ func (s *Server) getPrefs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updatePrefs(w http.ResponseWriter, r *http.Request) {
 	userID, _ := auth.UserID(r.Context())
 	var in struct {
-		Model        *string `json:"model"`
-		Language     *string `json:"language"`
-		SystemPrompt *string `json:"systemPrompt"`
-		CharLimit    *int    `json:"charLimit"`
-		Timezone     *string `json:"timezone"`
+		Model           *string `json:"model"`
+		Language        *string `json:"language"`
+		SystemPrompt    *string `json:"systemPrompt"`
+		CharLimit       *int    `json:"charLimit"`
+		ChatMaxTokens   *int    `json:"chatMaxTokens"`
+		Timezone        *string `json:"timezone"`
+		OpenRouterKey   *string `json:"openrouterKey"`
+		GCalSyncEnabled *bool   `json:"gcalSyncEnabled"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		http.Error(w, "json inválido", http.StatusBadRequest)
@@ -48,6 +51,15 @@ func (s *Server) updatePrefs(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Timezone != nil {
 		current.Timezone = *in.Timezone
+	}
+	if in.OpenRouterKey != nil {
+		current.OpenRouterKey = *in.OpenRouterKey
+	}
+	if in.ChatMaxTokens != nil {
+		current.ChatMaxTokens = *in.ChatMaxTokens
+	}
+	if in.GCalSyncEnabled != nil {
+		current.GCalSyncEnabled = *in.GCalSyncEnabled
 	}
 	if err := s.users.SetUserPrefs(r.Context(), userID, current); err != nil {
 		writeErr(w, err)

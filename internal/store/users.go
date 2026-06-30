@@ -69,36 +69,57 @@ func (s *Store) UserTimezone(ctx context.Context, userID int64) (string, error) 
 }
 
 type UserPrefs struct {
-	Model        string `json:"model"`
-	Language     string `json:"language"`
-	SystemPrompt string `json:"systemPrompt"`
-	CharLimit    int    `json:"charLimit"`
-	Timezone     string `json:"timezone"`
+	Model           string `json:"model"`
+	Language        string `json:"language"`
+	SystemPrompt    string `json:"systemPrompt"`
+	CharLimit       int    `json:"charLimit"`
+	ChatMaxTokens   int    `json:"chatMaxTokens"`
+	Timezone        string `json:"timezone"`
+	OpenRouterKey   string `json:"openrouterKey"`
+	GCalSyncEnabled bool   `json:"gcalSyncEnabled"`
 }
 
 func (s *Store) GetUserPrefs(ctx context.Context, userID int64) (UserPrefs, error) {
 	var p UserPrefs
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(model,''), COALESCE(language,''), COALESCE(system_prompt,''),
-		        COALESCE(note_char_limit,0), COALESCE(timezone,'UTC')
+		        COALESCE(note_char_limit,0), COALESCE(chat_max_tokens,0),
+		        COALESCE(timezone,'UTC'),
+		        COALESCE(openrouter_key,''), COALESCE(gcal_sync_enabled,false)
 		   FROM user_prefs WHERE user_id=$1`, userID,
-	).Scan(&p.Model, &p.Language, &p.SystemPrompt, &p.CharLimit, &p.Timezone)
+	).Scan(&p.Model, &p.Language, &p.SystemPrompt, &p.CharLimit, &p.ChatMaxTokens, &p.Timezone, &p.OpenRouterKey, &p.GCalSyncEnabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return UserPrefs{}, nil
 	}
 	return p, err
 }
 
+// GetUserOpenRouterKey retorna a chave OpenRouter do usuário. Se não definida
+// ou a linha de prefs não existir, retorna "" (sem erro).
+func (s *Store) GetUserOpenRouterKey(ctx context.Context, userID int64) (string, error) {
+	var key string
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(openrouter_key,'') FROM user_prefs WHERE user_id=$1`, userID,
+	).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return key, err
+}
+
 func (s *Store) SetUserPrefs(ctx context.Context, userID int64, p UserPrefs) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO user_prefs (user_id, model, language, system_prompt, note_char_limit, timezone)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO user_prefs (user_id, model, language, system_prompt, note_char_limit, chat_max_tokens, timezone, openrouter_key, gcal_sync_enabled)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (user_id) DO UPDATE SET
 		   model = EXCLUDED.model,
 		   language = EXCLUDED.language,
 		   system_prompt = EXCLUDED.system_prompt,
 		   note_char_limit = EXCLUDED.note_char_limit,
-		   timezone = EXCLUDED.timezone`,
-		userID, p.Model, p.Language, p.SystemPrompt, p.CharLimit, p.Timezone)
+		   chat_max_tokens = EXCLUDED.chat_max_tokens,
+		   timezone = EXCLUDED.timezone,
+		   openrouter_key = EXCLUDED.openrouter_key,
+		   gcal_sync_enabled = EXCLUDED.gcal_sync_enabled`,
+		userID, p.Model, p.Language, p.SystemPrompt, p.CharLimit, p.ChatMaxTokens, p.Timezone, p.OpenRouterKey, p.GCalSyncEnabled)
 	return err
 }

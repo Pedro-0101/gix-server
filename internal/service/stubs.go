@@ -96,7 +96,8 @@ func (c *Chat) Send(ctx context.Context, userID int64, in core.ChatInput, sink c
 	if text == "" {
 		return nil
 	}
-	if !c.ai.hasKey() {
+	key := c.ai.resolveKey(ctx, c.store, userID)
+	if key == "" {
 		return sink(core.ChatEvent{Type: "error", Err: "chave de IA não configurada"})
 	}
 
@@ -149,6 +150,14 @@ func (c *Chat) Send(ctx context.Context, userID int64, in core.ChatInput, sink c
 	if prefs.SystemPrompt != "" {
 		systemContent = prefs.SystemPrompt + "\n\n" + systemContent
 	}
+	// Trunca o histórico se exceder o limite de tokens de contexto.
+	maxTokens := resolveMaxTokens(prefs.ChatMaxTokens)
+	reserved := estimateTokens(systemContent) + estimateTokens(text) + 100
+	budget := maxTokens - reserved
+	if budget < 0 {
+		budget = 0
+	}
+	history = trimHistory(history, budget)
 	msgs := []ai.Message{
 		{Role: "system", Content: systemContent},
 		chatTimeSystem(time.Now(), lang(language)),
@@ -158,7 +167,7 @@ func (c *Chat) Send(ctx context.Context, userID int64, in core.ChatInput, sink c
 
 	// Streaming
 	var sb strings.Builder
-	usagePtr, toolCalls, streamErr := c.ai.Client.StreamTools(ctx, model, msgs, chatTools(), func(delta string) {
+	usagePtr, toolCalls, streamErr := c.ai.Client.StreamTools(ctx, key, model, msgs, chatTools(), func(delta string) {
 		sb.WriteString(delta)
 		sink(core.ChatEvent{Type: "delta", Delta: delta}) //nolint:errcheck
 	})
